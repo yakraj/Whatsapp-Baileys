@@ -67,4 +67,6 @@ ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
 # We will wrap the start command to run migrations
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+# Use the local prisma binary directly to avoid npx downloading the latest version
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node server.js"]
+
