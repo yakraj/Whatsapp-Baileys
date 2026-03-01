@@ -7,6 +7,7 @@ export interface GatewayConnection {
   customerName: string;
   websiteUrl?: string;
   status: ConnectionStatus;
+  connectedMobile?: string;
   sentCount: number;
   createdAt: string;
   lastActiveAt: string;
@@ -64,4 +65,13 @@ export interface SendMessageInput {
   mobileNumber: string;
   message: string;
   attachment?: MessageAttachment;
+}
+
+export type SocketStatus = "connected" | "stale" | "disconnected";
+
+export interface ConnectionStatusCheckResult {
+  connection: GatewayConnection;
+  socketStatus: SocketStatus;
+  isReachable: boolean;
+  checkedAt: string;
 }

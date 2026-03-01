@@ -34,7 +34,7 @@ export function ConnectionsPageClient() {
           <h3 className="text-lg font-semibold">Connected Baileys Clients</h3>
           <ConnectionsTable
             connections={data.connections}
-            onConnectionActivated={refresh}
+            onConnectionChanged={refresh}
           />
         </section>
         <ConnectClientForm onConnected={refresh} />

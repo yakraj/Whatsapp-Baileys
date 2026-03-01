@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConnectionStatus {
+  pending_qr
+  connected
+  stale
+}
+
+enum MessageStatus {
+  queued
+  sent
+  failed
+}
+
+model GatewayConnection {
+  id              String           @id @default(uuid())
+  customerId      String           @unique
+  customerName    String
+  websiteUrl      String?
+  connectionToken String?          @db.Text
+  status          ConnectionStatus @default(pending_qr)
+  connectedMobile String?
+  sentCount       Int              @default(0)
+  createdAt       DateTime         @default(now())
+  lastActiveAt    DateTime         @default(now())
+  messages        MessageLog[]
+  waAuthState     WaAuthState?
+
+  @@index([status])
+  @@index([lastActiveAt])
+}
+
+model WaAuthState {
+  id           String            @id @default(uuid())
+  connectionId String            @unique
+  connection   GatewayConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  creds        Json
+  keys         Json              @default("{}")
+  updatedAt    DateTime          @updatedAt
+}
+
+model MessageLog {
+  id             String            @id @default(uuid())
+  connectionId   String
+  connection     GatewayConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  mobileNumber   String
+  message        String            @db.Text
+  attachmentName String?
+  attachmentType String?
+  attachmentSize Int?
+  attachmentUrl  String?
+  status         MessageStatus     @default(queued)
+  createdAt      DateTime          @default(now())
+
+  @@index([connectionId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
+}

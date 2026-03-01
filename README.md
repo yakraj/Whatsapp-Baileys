@@ -1,6 +1,6 @@
 # WhatsApp Baileys Gateway Dashboard
 
-Multi-tenant starter gateway built with Next.js 15 App Router, TypeScript, Tailwind CSS v4, shadcn/ui, and Zustand.
+Multi-tenant starter gateway built with Next.js 15 App Router, TypeScript, Tailwind CSS v4, shadcn/ui, Zustand, PostgreSQL, and Prisma.
 
 Production Manager URL: `https://manager.adonaisoft.com`
 
@@ -10,6 +10,7 @@ Production Manager URL: `https://manager.adonaisoft.com`
 - Tailwind CSS + shadcn/ui
 - Lucide icons
 - Zustand state store
+- PostgreSQL + Prisma ORM
 - React Hook Form + Zod validation
 - `next-themes` dark mode support
 
@@ -18,10 +19,16 @@ Production Manager URL: `https://manager.adonaisoft.com`
 - Responsive sidebar/navbar dashboard shell
 - Dark/light/system theme toggle
 - Global fetch API client with typed error handling
-- In-memory gateway store for:
+- **Enhanced Connection Management**:
+  - Persistent auth state (survives reboots & network drops)
+  - Auto-reconnect logic for transient failures
+  - Explicit manual re-link support (clears stale credentials)
+  - 10-digit number auto-formatting (+91 default)
+- PostgreSQL-backed gateway store for:
   - customer onboarding (`customerId` + `customerName`)
   - server-issued JWT connection tokens
   - QR-code based login approval flow
+  - active mobile number display (+91...) and status updates
   - message queue logs with optional attachment metadata
   - dashboard counters (connections, sent today, failures)
 - Route-level `loading.tsx` and `error.tsx` for main dashboard routes
@@ -38,6 +45,7 @@ Production Manager URL: `https://manager.adonaisoft.com`
 
 ```bash
 npm install
+npx prisma migrate dev --name init
 npm run dev
 ```
 
@@ -108,6 +116,27 @@ Only activated (`connected`) tenants can send messages.
 
 Returns overview metrics + connections + recent messages.
 
+### 6) Check socket status
+
+`GET /api/v1/connections/status`
+
+- Use one of:
+  - `Authorization: Bearer <connectionToken>`
+  - query: `?connectionId=<uuid>`
+- Response includes:
+  - `socketStatus` (`connected` | `stale` | `disconnected`)
+  - `isReachable` boolean
+  - `checkedAt` timestamp
+
+### 7) Logout connection
+
+`POST /api/v1/connections/logout`
+
+- Use one of:
+  - `Authorization: Bearer <connectionToken>`
+  - body: `{ "connectionId": "<uuid>" }`
+- Logout marks connection as `stale` and blocks message sending until re-activation.
+
 ## Example Flow (`adnonaisoft`)
 
 1. Create connection via `/api/v1/connections/request` with:
@@ -120,6 +149,7 @@ Returns overview metrics + connections + recent messages.
 
 ## Notes
 
-- This starter uses in-memory storage (`src/lib/gateway-store.ts`), so data resets on server restart.
+- Set `DATABASE_URL` in `.env` for PostgreSQL.
+- Run migrations after schema changes: `npx prisma migrate dev`.
 - Set `GATEWAY_JWT_SECRET` in environment for production token signing.
-- Replace this with DB + proper JWT verification before production use.
+- Use `npx prisma studio` to inspect connection and message data.

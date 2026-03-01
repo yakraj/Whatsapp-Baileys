@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const mobileNumberRegex = /^\+?[1-9]\d{7,14}$/;
+const mobileNumberRegex = /^\+?[1-9]?\d{9,14}$/;
 const customerIdRegex = /^[a-zA-Z0-9_-]{3,64}$/;
 
 export const requestConnectionSchema = z.object({

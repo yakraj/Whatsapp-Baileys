@@ -22,6 +22,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const pageTitle = useMemo(() => {
+    if (!pathname) return "Dashboard";
     const item = dashboardNavItems.find((navItem) =>
       navItem.href === "/" ? pathname === "/" : pathname.startsWith(navItem.href)
     );

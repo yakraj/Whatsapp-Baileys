@@ -1,7 +1,15 @@
-import { randomUUID } from "node:crypto";
-import QRCode from "qrcode";
-import { signConnectionToken, verifyConnectionToken } from "@/lib/connection-token";
 import type {
+  GatewayConnection as GatewayConnectionRecord,
+  MessageLog as MessageLogRecord,
+} from "@prisma/client";
+import {
+  signConnectionToken,
+  verifyConnectionToken,
+} from "@/lib/connection-token";
+import { prisma } from "@/lib/prisma";
+import { waManager } from "@/lib/whatsapp-manager";
+import type {
+  ConnectionStatusCheckResult,
   ConnectionRequestResult,
   CreateConnectionInput,
   DashboardOverviewResponse,
@@ -10,31 +18,8 @@ import type {
   SendMessageInput,
 } from "@/types/gateway";
 
-interface GatewayStoreState {
-  connectionsById: Map<string, GatewayConnection>;
-  connectionIdByCustomerId: Map<string, string>;
-  messages: MessageLog[];
-}
-
-declare global {
-  var __gatewayStoreState: GatewayStoreState | undefined;
-}
-
-function createStoreState(): GatewayStoreState {
-  return {
-    connectionsById: new Map<string, GatewayConnection>(),
-    connectionIdByCustomerId: new Map<string, string>(),
-    messages: [],
-  };
-}
-
-function getStoreState(): GatewayStoreState {
-  if (!global.__gatewayStoreState) {
-    global.__gatewayStoreState = createStoreState();
-  }
-
-  return global.__gatewayStoreState;
-}
+const MAX_STORED_MESSAGES = 200;
+const SOCKET_STALE_THRESHOLD_MS = 5 * 60 * 1000;
 
 function sanitizeOptionalUrl(url?: string): string | undefined {
   if (!url || !url.trim()) {
@@ -44,51 +29,119 @@ function sanitizeOptionalUrl(url?: string): string | undefined {
   return url.trim();
 }
 
-function upsertConnection(input: CreateConnectionInput): GatewayConnection {
-  const store = getStoreState();
-  const now = new Date().toISOString();
-  const existingConnectionId = store.connectionIdByCustomerId.get(input.customerId);
+function mapConnection(connection: GatewayConnectionRecord): GatewayConnection {
+  return {
+    id: connection.id,
+    customerId: connection.customerId,
+    customerName: connection.customerName,
+    websiteUrl: connection.websiteUrl ?? undefined,
+    status: connection.status,
+    connectedMobile: connection.connectedMobile ?? undefined,
+    sentCount: connection.sentCount,
+    createdAt: connection.createdAt.toISOString(),
+    lastActiveAt: connection.lastActiveAt.toISOString(),
+  };
+}
 
-  if (existingConnectionId) {
-    const existingConnection = store.connectionsById.get(existingConnectionId);
+function mapMessage(message: MessageLogRecord): MessageLog {
+  const hasAttachment =
+    Boolean(message.attachmentName) ||
+    Boolean(message.attachmentType) ||
+    Boolean(message.attachmentUrl) ||
+    typeof message.attachmentSize === "number";
 
-    if (existingConnection) {
-      const updatedConnection: GatewayConnection = {
-        ...existingConnection,
-        customerId: input.customerId,
-        customerName: input.customerName,
-        websiteUrl: sanitizeOptionalUrl(input.websiteUrl),
-        status: "pending_qr",
-        lastActiveAt: now,
-      };
+  return {
+    id: message.id,
+    connectionId: message.connectionId,
+    mobileNumber: message.mobileNumber,
+    message: message.message,
+    status: message.status,
+    createdAt: message.createdAt.toISOString(),
+    attachment: hasAttachment
+      ? {
+          name: message.attachmentName ?? "external-attachment",
+          type: message.attachmentType ?? undefined,
+          size: message.attachmentSize ?? undefined,
+          url: message.attachmentUrl ?? undefined,
+        }
+      : undefined,
+  };
+}
 
-      store.connectionsById.set(existingConnection.id, updatedConnection);
+async function trimStoredMessages(): Promise<void> {
+  const oldMessages = await prisma.messageLog.findMany({
+    select: { id: true },
+    orderBy: { createdAt: "desc" },
+    skip: MAX_STORED_MESSAGES,
+  });
 
-      return updatedConnection;
-    }
+  if (!oldMessages.length) {
+    return;
   }
 
-  const connection: GatewayConnection = {
-    id: randomUUID(),
-    customerId: input.customerId,
-    customerName: input.customerName,
-    websiteUrl: sanitizeOptionalUrl(input.websiteUrl),
-    status: "pending_qr",
-    sentCount: 0,
-    createdAt: now,
-    lastActiveAt: now,
-  };
+  await prisma.messageLog.deleteMany({
+    where: {
+      id: {
+        in: oldMessages.map((message) => message.id),
+      },
+    },
+  });
+}
 
-  store.connectionsById.set(connection.id, connection);
-  store.connectionIdByCustomerId.set(connection.customerId, connection.id);
+async function upsertConnection(
+  input: CreateConnectionInput,
+  connectionToken?: string,
+): Promise<GatewayConnection> {
+  const now = new Date();
+  const websiteUrl = sanitizeOptionalUrl(input.websiteUrl);
+  const existingConnection = await prisma.gatewayConnection.findUnique({
+    where: { customerId: input.customerId },
+  });
 
-  return connection;
+  if (existingConnection) {
+    const updatedConnection = await prisma.gatewayConnection.update({
+      where: { id: existingConnection.id },
+      data: {
+        customerName: input.customerName,
+        websiteUrl,
+        connectionToken: connectionToken ?? existingConnection.connectionToken,
+        status: "pending_qr",
+        lastActiveAt: now,
+      },
+    });
+
+    return mapConnection(updatedConnection);
+  }
+
+  const connection = await prisma.gatewayConnection.create({
+    data: {
+      customerId: input.customerId,
+      customerName: input.customerName,
+      websiteUrl,
+      connectionToken: connectionToken ?? null,
+      status: "pending_qr",
+      lastActiveAt: now,
+    },
+  });
+
+  return mapConnection(connection);
 }
 
 export async function createConnectionRequest(
-  input: CreateConnectionInput
+  input: CreateConnectionInput,
 ): Promise<ConnectionRequestResult> {
-  const connection = upsertConnection(input);
+  // Build the JWT first so we can persist it alongside the connection row
+  const tempId =
+    (
+      await prisma.gatewayConnection.findUnique({
+        where: { customerId: input.customerId },
+        select: { id: true },
+      })
+    )?.id ?? "pending";
+
+  // Upsert the DB row (without token first to get the real id)
+  const connection = await upsertConnection(input);
+
   const auth = signConnectionToken({
     connectionId: connection.id,
     customerId: connection.customerId,
@@ -96,11 +149,34 @@ export async function createConnectionRequest(
     tokenType: "gateway_connection",
   });
 
-  const qrPayload = `baileys-gateway://login?token=${encodeURIComponent(auth.token)}`;
-  const qrCodeDataUrl = await QRCode.toDataURL(qrPayload, {
-    margin: 1,
-    width: 320,
+  // Persist the JWT in the DB so it survives reboots
+  await prisma.gatewayConnection.update({
+    where: { id: connection.id },
+    data: { connectionToken: auth.token },
   });
+
+  void tempId; // suppress unused-var warning
+
+    // Start a real Baileys socket and wait for the WhatsApp QR.
+    // passing true deletes any stale auth state synchronously inside the manager
+    // perfectly avoiding race conditions with old socket instances saving state.
+    const qrCodeDataUrl = await waManager.startSession(connection.id, true);
+
+    if (qrCodeDataUrl === undefined) {
+      throw new Error(`Failed to initialize session for connection ${connection.id} (possible immediate logout/timeout)`);
+    }
+
+    if (!qrCodeDataUrl) {
+      // Session restored silently (stored credentials still valid)
+      return {
+        connection: { ...connection, status: "connected" },
+        auth: {
+          connectionToken: auth.token,
+          qrCodeDataUrl: "",
+          expiresAt: auth.expiresAt,
+        },
+      };
+    }
 
   return {
     connection,
@@ -112,54 +188,74 @@ export async function createConnectionRequest(
   };
 }
 
-export function listConnections(): GatewayConnection[] {
-  const store = getStoreState();
-  return Array.from(store.connectionsById.values()).sort((left, right) =>
-    right.lastActiveAt.localeCompare(left.lastActiveAt)
-  );
+export async function listConnections(): Promise<GatewayConnection[]> {
+  const connections = await prisma.gatewayConnection.findMany({
+    orderBy: { lastActiveAt: "desc" },
+  });
+
+  return connections.map(mapConnection);
 }
 
-export function getConnectionById(connectionId: string): GatewayConnection | undefined {
-  return getStoreState().connectionsById.get(connectionId);
+export async function getConnectionById(
+  connectionId: string,
+): Promise<GatewayConnection | undefined> {
+  const connection = await prisma.gatewayConnection.findUnique({
+    where: { id: connectionId },
+  });
+
+  if (!connection) {
+    return undefined;
+  }
+
+  return mapConnection(connection);
 }
 
-export function getConnectionByToken(token: string): GatewayConnection | undefined {
-  const store = getStoreState();
+export async function getConnectionByToken(
+  token: string,
+): Promise<GatewayConnection | undefined> {
   const claims = verifyConnectionToken(token);
 
   if (!claims) {
     return undefined;
   }
 
-  const connection = store.connectionsById.get(claims.connectionId);
+  const connection = await prisma.gatewayConnection.findUnique({
+    where: { id: claims.connectionId },
+  });
 
   if (!connection || connection.customerId !== claims.customerId) {
     return undefined;
   }
 
-  return connection;
+  return mapConnection(connection);
 }
 
-export function activateConnection(connectionId: string): GatewayConnection | undefined {
-  const store = getStoreState();
-  const connection = store.connectionsById.get(connectionId);
+export async function activateConnection(
+  connectionId: string,
+): Promise<GatewayConnection | undefined> {
+  const connection = await prisma.gatewayConnection.findUnique({
+    where: { id: connectionId },
+  });
 
   if (!connection) {
     return undefined;
   }
 
-  const updatedConnection: GatewayConnection = {
-    ...connection,
-    status: "connected",
-    lastActiveAt: new Date().toISOString(),
-  };
+  const updatedConnection = await prisma.gatewayConnection.update({
+    where: { id: connection.id },
+    data: {
+      status: "connected",
+      lastActiveAt: new Date(),
+    },
+  });
 
-  store.connectionsById.set(connection.id, updatedConnection);
-  return updatedConnection;
+  return mapConnection(updatedConnection);
 }
 
-export function activateConnectionByToken(token: string): GatewayConnection | undefined {
-  const connection = getConnectionByToken(token);
+export async function activateConnectionByToken(
+  token: string,
+): Promise<GatewayConnection | undefined> {
+  const connection = await getConnectionByToken(token);
 
   if (!connection) {
     return undefined;
@@ -168,24 +264,137 @@ export function activateConnectionByToken(token: string): GatewayConnection | un
   return activateConnection(connection.id);
 }
 
-function updateConnectionSentCount(connection: GatewayConnection): GatewayConnection {
-  const store = getStoreState();
-  const updatedConnection: GatewayConnection = {
-    ...connection,
-    sentCount: connection.sentCount + 1,
-    lastActiveAt: new Date().toISOString(),
-  };
+function computeSocketStatus(
+  connection: GatewayConnection,
+  connectionId: string,
+): {
+  socketStatus: ConnectionStatusCheckResult["socketStatus"];
+  isReachable: boolean;
+} {
+  if (connection.status !== "connected") {
+    return {
+      socketStatus: "disconnected",
+      isReachable: false,
+    };
+  }
 
-  store.connectionsById.set(connection.id, updatedConnection);
-  return updatedConnection;
+  // Primary check: is the Baileys socket actually open right now?
+  const isOpen = waManager.isSocketOpen(connectionId);
+  if (!isOpen) {
+    return {
+      socketStatus: "stale",
+      isReachable: false,
+    };
+  }
+
+  // Secondary check: stale by inactivity time
+  const lastActiveAtMs = new Date(connection.lastActiveAt).getTime();
+  const isStale = Date.now() - lastActiveAtMs > SOCKET_STALE_THRESHOLD_MS;
+
+  if (isStale) {
+    return {
+      socketStatus: "stale",
+      isReachable: false,
+    };
+  }
+
+  return {
+    socketStatus: "connected",
+    isReachable: true,
+  };
 }
 
-export function queueOutgoingMessage(
+export async function checkConnectionStatus(
   connectionId: string,
-  input: SendMessageInput
-): MessageLog {
-  const store = getStoreState();
-  const connection = store.connectionsById.get(connectionId);
+): Promise<ConnectionStatusCheckResult | undefined> {
+  const connection = await getConnectionById(connectionId);
+
+  if (!connection) {
+    return undefined;
+  }
+
+  const { socketStatus, isReachable } = computeSocketStatus(connection, connectionId);
+
+  if (socketStatus === "stale" && connection.status !== "stale") {
+    const staleConnection = await prisma.gatewayConnection.update({
+      where: { id: connection.id },
+      data: { status: "stale", connectedMobile: null },
+    });
+
+    return {
+      connection: mapConnection(staleConnection),
+      socketStatus,
+      isReachable,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    connection,
+    socketStatus,
+    isReachable,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+export async function checkConnectionStatusByToken(
+  token: string,
+): Promise<ConnectionStatusCheckResult | undefined> {
+  const connection = await getConnectionByToken(token);
+
+  if (!connection) {
+    return undefined;
+  }
+
+  return checkConnectionStatus(connection.id);
+}
+
+export async function logoutConnection(
+  connectionId: string,
+): Promise<GatewayConnection | undefined> {
+  const connection = await prisma.gatewayConnection.findUnique({
+    where: { id: connectionId },
+  });
+
+  if (!connection) {
+    return undefined;
+  }
+
+  // Stop active Baileys socket and purge stored credentials
+  await waManager.stopSession(connectionId);
+
+  const updatedConnection = await prisma.gatewayConnection.update({
+    where: { id: connection.id },
+    data: {
+      status: "stale",
+      lastActiveAt: new Date(),
+      connectedMobile: null,
+    },
+  });
+
+  return mapConnection(updatedConnection);
+}
+
+export async function logoutConnectionByToken(
+  token: string,
+): Promise<GatewayConnection | undefined> {
+  const connection = await getConnectionByToken(token);
+
+  if (!connection) {
+    return undefined;
+  }
+
+  return logoutConnection(connection.id);
+}
+
+export async function queueOutgoingMessage(
+  connectionId: string,
+  input: SendMessageInput,
+): Promise<MessageLog> {
+  // 1. Validate the connection is marked connected in the DB
+  const connection = await prisma.gatewayConnection.findUnique({
+    where: { id: connectionId },
+  });
 
   if (!connection) {
     throw new Error("Connection not found");
@@ -195,58 +404,107 @@ export function queueOutgoingMessage(
     throw new Error("Connection is not active");
   }
 
-  updateConnectionSentCount(connection);
+  // 2. Attempt actual delivery via Baileys socket
+  let status: MessageLog["status"];
+  try {
+    const attachment = input.attachment?.url ? {
+      name: input.attachment.name,
+      type: input.attachment.type, 
+      url: input.attachment.url,
+      caption: input.message || undefined
+    } : undefined;
 
-  const status: MessageLog["status"] = Math.random() > 0.05 ? "sent" : "failed";
-  const messageLog: MessageLog = {
-    id: randomUUID(),
-    connectionId,
-    mobileNumber: input.mobileNumber,
-    message: input.message,
-    attachment: input.attachment,
-    status,
-    createdAt: new Date().toISOString(),
-  };
-
-  store.messages.unshift(messageLog);
-  store.messages = store.messages.slice(0, 200);
-
-  return messageLog;
-}
-
-function getMessagesTodayCount(messages: MessageLog[]): number {
-  const today = new Date();
-
-  return messages.filter((message) => {
-    const date = new Date(message.createdAt);
-    return (
-      date.getFullYear() === today.getFullYear() &&
-      date.getMonth() === today.getMonth() &&
-      date.getDate() === today.getDate()
+    await waManager.sendTextMessage(
+      connectionId,
+      input.mobileNumber,
+      input.message,
+      attachment ? { attachment } : undefined
     );
-  }).length;
+    status = "sent";
+
+    // Only increment sentCount after confirmed delivery
+    await prisma.gatewayConnection.update({
+      where: { id: connectionId },
+      data: {
+        sentCount: { increment: 1 },
+        lastActiveAt: new Date(),
+      },
+    });
+  } catch (sendError) {
+    console.error(
+      `[WA] sendTextMessage failed for ${connectionId}:`,
+      sendError,
+    );
+    status = "failed";
+  }
+
+  // 3. Log the result
+  const messageLog = await prisma.messageLog.create({
+    data: {
+      connectionId,
+      mobileNumber: input.mobileNumber,
+      message: input.message,
+      status,
+      attachmentName: input.attachment?.name,
+      attachmentType: input.attachment?.type,
+      attachmentSize: input.attachment?.size,
+      attachmentUrl: input.attachment?.url,
+    },
+  });
+
+  await trimStoredMessages();
+
+  return mapMessage(messageLog);
 }
 
-export function getDashboardOverview(): DashboardOverviewResponse {
-  const store = getStoreState();
-  const connections = listConnections();
-  const messages = store.messages;
-  const failedMessages = messages.filter((message) => message.status === "failed")
-    .length;
-  const totalMessagesSent = messages.filter((message) => message.status === "sent")
-    .length;
-  const recentMessages = messages.slice(0, 20);
+export async function getDashboardOverview(): Promise<DashboardOverviewResponse> {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [
+    totalConnections,
+    connectedNow,
+    totalMessagesSent,
+    messagesToday,
+    failedMessages,
+    connections,
+    recentMessages,
+  ] = await prisma.$transaction([
+    prisma.gatewayConnection.count(),
+    prisma.gatewayConnection.count({
+      where: { status: "connected" },
+    }),
+    prisma.messageLog.count({
+      where: { status: "sent" },
+    }),
+    prisma.messageLog.count({
+      where: {
+        createdAt: {
+          gte: startOfToday,
+        },
+      },
+    }),
+    prisma.messageLog.count({
+      where: { status: "failed" },
+    }),
+    prisma.gatewayConnection.findMany({
+      orderBy: { lastActiveAt: "desc" },
+    }),
+    prisma.messageLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+  ]);
 
   return {
     overview: {
-      totalConnections: connections.length,
-      connectedNow: connections.filter((connection) => connection.status === "connected")
-        .length,
+      totalConnections,
+      connectedNow,
       totalMessagesSent,
-      messagesToday: getMessagesTodayCount(messages),
+      messagesToday,
       failedMessages,
     },
-    connections,
-    recentMessages,
+    connections: connections.map(mapConnection),
+    recentMessages: recentMessages.map(mapMessage),
   };
 }
