@@ -7,14 +7,12 @@ export const requestConnectionSchema = z.object({
   customerId: z
     .string()
     .trim()
-    .regex(customerIdRegex, "Use letters, numbers, underscore, or hyphen (3-64 chars)"),
+    .regex(
+      customerIdRegex,
+      "Use letters, numbers, underscore, or hyphen (3-64 chars)",
+    ),
   customerName: z.string().trim().min(2).max(80),
-  websiteUrl: z
-    .string()
-    .trim()
-    .url()
-    .optional()
-    .or(z.literal("")),
+  websiteUrl: z.string().trim().url().optional().or(z.literal("")),
 });
 
 export const sendMessageSchema = z.object({
@@ -47,9 +45,11 @@ export const sendMessageFormSchema = z.object({
     .optional()
     .refine(
       (file) => !file || file.size <= 10 * 1024 * 1024,
-      "Attachment must be <= 10MB"
+      "Attachment must be <= 10MB",
     ),
 });
 
-export type RequestConnectionFormValues = z.infer<typeof requestConnectionFormSchema>;
+export type RequestConnectionFormValues = z.infer<
+  typeof requestConnectionFormSchema
+>;
 export type SendMessageFormValues = z.infer<typeof sendMessageFormSchema>;

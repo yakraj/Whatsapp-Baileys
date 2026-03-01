@@ -126,7 +126,6 @@ Response contains:
 - `data.mobileNumber` (e.g., `+919876543210` - if `connected`)
 - `data.checkedAt` (ISO timestamp)
 
-
 ## 4. Send Messages
 
 Endpoint:

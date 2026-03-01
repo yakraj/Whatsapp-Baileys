@@ -18,7 +18,9 @@ interface ParsedSendPayload {
   connectionId?: string;
 }
 
-async function parsePayload(request: Request): Promise<ParsedSendPayload | null> {
+async function parsePayload(
+  request: Request,
+): Promise<ParsedSendPayload | null> {
   const contentType = request.headers.get("Content-Type") ?? "";
 
   if (contentType.includes("multipart/form-data")) {
@@ -36,7 +38,7 @@ async function parsePayload(request: Request): Promise<ParsedSendPayload | null>
       payload.fileName = file.name;
       payload.fileType = file.type;
       payload.fileSize = file.size;
-      
+
       // Convert file to base64 data URL
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
@@ -81,7 +83,11 @@ export async function POST(request: Request) {
         status: 400,
         message: "Invalid message payload",
       });
-      return apiError("Invalid message payload", 400, validation.error.flatten());
+      return apiError(
+        "Invalid message payload",
+        400,
+        validation.error.flatten(),
+      );
     }
 
     const byToken = token ? await getConnectionByToken(token) : undefined;
@@ -98,7 +104,7 @@ export async function POST(request: Request) {
       });
       return apiError(
         "Connection not found. Provide a valid Bearer token or connectionId.",
-        404
+        404,
       );
     }
 
@@ -119,7 +125,7 @@ export async function POST(request: Request) {
       });
       return apiError(
         "Connection is pending QR approval. Complete login before sending messages.",
-        403
+        403,
       );
     }
 
@@ -145,7 +151,11 @@ export async function POST(request: Request) {
     });
 
     if (message.status === "failed") {
-      return apiError("Message delivery failed — WhatsApp socket is not ready. Check connection status.", 502, { messageId: message.id });
+      return apiError(
+        "Message delivery failed — WhatsApp socket is not ready. Check connection status.",
+        502,
+        { messageId: message.id },
+      );
     }
 
     return apiSuccess(message, 201);

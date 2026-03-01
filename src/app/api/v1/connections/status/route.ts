@@ -55,7 +55,10 @@ export async function GET(request: Request) {
         status: 400,
         message: "Provide Authorization Bearer token or connectionId",
       });
-      return apiError("Provide Authorization Bearer token or connectionId", 400);
+      return apiError(
+        "Provide Authorization Bearer token or connectionId",
+        400,
+      );
     }
 
     const status = await checkConnectionStatus(connectionId);

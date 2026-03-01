@@ -51,7 +51,7 @@ export function GettingStartedGuide({ content }: GettingStartedGuideProps) {
         <CardContent className="pt-6">
           <article className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
-               components={{
+              components={{
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 pre: ({ node, ...props }) => (
                   <div className="overflow-auto rounded-lg bg-muted p-4 my-4">
@@ -60,7 +60,10 @@ export function GettingStartedGuide({ content }: GettingStartedGuideProps) {
                 ),
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
                 code: ({ node, ...props }) => (
-                  <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" {...props} />
+                  <code
+                    className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono"
+                    {...props}
+                  />
                 ),
               }}
             >

@@ -13,7 +13,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiClientError, apiClient } from "@/lib/api-client";
-import type { ConnectionStatusCheckResult, GatewayConnection } from "@/types/gateway";
+import type {
+  ConnectionStatusCheckResult,
+  GatewayConnection,
+} from "@/types/gateway";
 
 interface ConnectionsTableProps {
   connections: GatewayConnection[];
@@ -57,14 +60,15 @@ export function ConnectionsTable({
 
     try {
       const result = await apiClient.get<{ data: ConnectionStatusCheckResult }>(
-        `/api/v1/connections/status?connectionId=${encodeURIComponent(connectionId)}`
+        `/api/v1/connections/status?connectionId=${encodeURIComponent(connectionId)}`,
       );
       const { connection, socketStatus } = result.data;
-      const mobileInfo = socketStatus === "connected" && connection.connectedMobile
-        ? ` — ${connection.connectedMobile}`
-        : "";
+      const mobileInfo =
+        socketStatus === "connected" && connection.connectedMobile
+          ? ` — ${connection.connectedMobile}`
+          : "";
       setActionSuccess(
-        `Socket status for ${connection.customerName}: ${socketStatus}${mobileInfo}`
+        `Socket status for ${connection.customerName}: ${socketStatus}${mobileInfo}`,
       );
       await onConnectionChanged();
     } catch (error) {
@@ -134,26 +138,37 @@ export function ConnectionsTable({
           <TableBody>
             {connections.map((connection) => (
               <TableRow key={connection.id}>
-                <TableCell className="font-mono text-xs">{connection.customerId}</TableCell>
-                <TableCell className="font-medium">{connection.customerName}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  {connection.customerId}
+                </TableCell>
+                <TableCell className="font-medium">
+                  {connection.customerName}
+                </TableCell>
                 <TableCell className="max-w-56 truncate text-muted-foreground">
                   {connection.websiteUrl ?? "-"}
                 </TableCell>
                 <TableCell className="font-mono text-xs">
-                  {connection.status === "connected" && connection.connectedMobile
-                    ? connection.connectedMobile
-                    : <span className="text-muted-foreground">-</span>}
+                  {connection.status === "connected" &&
+                  connection.connectedMobile ? (
+                    connection.connectedMobile
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge
                     variant={
-                      connection.status === "connected" ? "default" : "secondary"
+                      connection.status === "connected"
+                        ? "default"
+                        : "secondary"
                     }
                   >
                     {connection.status}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right">{connection.sentCount}</TableCell>
+                <TableCell className="text-right">
+                  {connection.sentCount}
+                </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-2">
                     <Button
@@ -176,7 +191,9 @@ export function ConnectionsTable({
                         size="sm"
                         variant="outline"
                         disabled={activatingId === connection.id}
-                        onClick={() => void activateByConnectionId(connection.id)}
+                        onClick={() =>
+                          void activateByConnectionId(connection.id)
+                        }
                       >
                         {activatingId === connection.id ? (
                           <Loader2 className="size-4 animate-spin" />
