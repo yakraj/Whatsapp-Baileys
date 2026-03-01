@@ -48,8 +48,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+
 # Copy the migrations directory if it exists, or just the schema
 # We need schema for prisma migrate deploy
+
+# Install Prisma CLI globally or locally in the runner stage to ensure it is available for migrations
+# Since we are in a production environment, npm ci/install production won't include devDependencies.
+# We explicitly install the specific version of Prisma CLI to match the client version and avoid version mismatch (P1012).
+RUN npm install prisma@6.16.2
+RUN chown -R nextjs:nodejs /app/node_modules
 
 USER nextjs
 
