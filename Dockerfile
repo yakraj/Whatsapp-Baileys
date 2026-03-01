@@ -29,6 +29,8 @@ RUN npm run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
+# Install git to handle dependencies that require it
+RUN apk add --no-cache git
 WORKDIR /app
 
 ENV NODE_ENV production
