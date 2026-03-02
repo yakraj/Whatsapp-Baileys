@@ -14,7 +14,6 @@
  */
 
 import makeWASocket, {
-  DisconnectReason,
   fetchLatestBaileysVersion,
   WASocket,
 } from "@whiskeysockets/baileys";

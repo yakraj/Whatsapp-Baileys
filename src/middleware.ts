@@ -11,14 +11,18 @@ const ALLOWED_ORIGINS = [
 
 // ─── Edge-compatible JWT helpers ──────────────────────────────────────────────
 
-function base64UrlDecode(str: string): Uint8Array {
+function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
   const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
   const padded = base64.padEnd(
     base64.length + ((4 - (base64.length % 4)) % 4),
     "=",
   );
   const binary = atob(padded);
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  const buf = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    buf[i] = binary.charCodeAt(i);
+  }
+  return buf;
 }
 
 async function isValidSessionToken(token: string): Promise<boolean> {
