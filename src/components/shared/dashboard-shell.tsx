@@ -27,7 +27,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pageTitle = useMemo(() => {
     if (!pathname) return "Dashboard";
     const item = dashboardNavItems.find((navItem) =>
-      navItem.href === "/" ? pathname === "/" : pathname.startsWith(navItem.href)
+      navItem.href === "/"
+        ? pathname === "/"
+        : pathname.startsWith(navItem.href),
     );
 
     return item?.label ?? "Dashboard";
@@ -54,7 +56,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               </span>
               <div>
                 <p className="text-sm font-semibold">Baileys Gateway</p>
-                <p className="text-xs text-muted-foreground">Multi-tenant control panel</p>
+                <p className="text-xs text-muted-foreground">
+                  Multi-tenant control panel
+                </p>
               </div>
             </div>
             <SidebarNav items={dashboardNavItems} />
@@ -88,9 +92,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               </Sheet>
 
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <h1 className="truncate text-base font-semibold md:text-lg">{pageTitle}</h1>
+                <h1 className="truncate text-base font-semibold md:text-lg">
+                  {pageTitle}
+                </h1>
               </div>
-              <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="hidden sm:inline-flex"
+              >
                 <Link href="/getting-started">
                   <BookOpenCheck className="size-4" />
                   Getting Started

@@ -13,7 +13,10 @@ const ALLOWED_ORIGINS = [
 
 function base64UrlDecode(str: string): Uint8Array {
   const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+  const padded = base64.padEnd(
+    base64.length + ((4 - (base64.length % 4)) % 4),
+    "=",
+  );
   const binary = atob(padded);
   return Uint8Array.from(binary, (c) => c.charCodeAt(0));
 }
@@ -65,8 +68,12 @@ function isProtectedPath(pathname: string): boolean {
 }
 
 function isAuthOnlyPath(pathname: string): boolean {
-  return pathname === "/login" || pathname.startsWith("/login/") ||
-         pathname === "/signup" || pathname.startsWith("/signup/");
+  return (
+    pathname === "/login" ||
+    pathname.startsWith("/login/") ||
+    pathname === "/signup" ||
+    pathname.startsWith("/signup/")
+  );
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -137,4 +144,3 @@ export const config = {
     "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
-

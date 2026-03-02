@@ -61,7 +61,9 @@ export function SignupForm() {
             <RadioTower className="size-7" />
           </span>
           <h1 className="text-2xl font-bold tracking-tight">Baileys Gateway</h1>
-          <p className="text-sm text-muted-foreground">Create a new admin account</p>
+          <p className="text-sm text-muted-foreground">
+            Create a new admin account
+          </p>
         </div>
 
         <Card>

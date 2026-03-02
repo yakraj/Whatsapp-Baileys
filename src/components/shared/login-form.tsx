@@ -60,13 +60,17 @@ export function LoginForm() {
             <RadioTower className="size-7" />
           </span>
           <h1 className="text-2xl font-bold tracking-tight">Baileys Gateway</h1>
-          <p className="text-sm text-muted-foreground">Sign in to the admin dashboard</p>
+          <p className="text-sm text-muted-foreground">
+            Sign in to the admin dashboard
+          </p>
         </div>
 
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Welcome back</CardTitle>
-            <CardDescription>Enter your credentials to continue</CardDescription>
+            <CardDescription>
+              Enter your credentials to continue
+            </CardDescription>
           </CardHeader>
 
           <form onSubmit={handleSubmit}>
@@ -111,7 +115,10 @@ export function LoginForm() {
               </Button>
               <p className="text-center text-xs text-muted-foreground">
                 No account?{" "}
-                <Link href="/signup" className="underline hover:text-foreground">
+                <Link
+                  href="/signup"
+                  className="underline hover:text-foreground"
+                >
                   Create one
                 </Link>{" "}
                 (invite PIN required)
