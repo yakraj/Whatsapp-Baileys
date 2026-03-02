@@ -1,7 +1,8 @@
 "use client";
 
-import { BookOpenCheck, Menu, RadioTower } from "lucide-react";
+import { BookOpenCheck, LogOut, Menu, RadioTower } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,9 @@ import { ThemeToggle } from "@/components/shared/theme-toggle";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
 
   const pageTitle = useMemo(() => {
     if (!pathname) return "Dashboard";
@@ -29,6 +32,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
     return item?.label ?? "Dashboard";
   }, [pathname]);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30">
@@ -84,6 +97,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 </Link>
               </Button>
               <ThemeToggle />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                title="Sign out"
+              >
+                <LogOut className="size-4" />
+                <span className="sr-only">Sign out</span>
+              </Button>
             </div>
           </header>
 

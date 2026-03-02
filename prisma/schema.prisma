@@ -63,3 +63,13 @@ model MessageLog {
   @@index([status, createdAt])
   @@index([createdAt])
 }
+
+/// Admin users for the dashboard login system.
+model AdminUser {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String   @db.Text
+  createdAt    DateTime @default(now())
+
+  @@index([username])
+}

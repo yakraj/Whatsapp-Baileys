@@ -29,6 +29,8 @@ class WhatsAppManager {
   private sockets = new Map<string, WASocket>();
   /** Only contains connectionIds where Baileys has fired connection === 'open' AND NOT yet fired connection === 'close'. */
   private openSockets = new Set<string>();
+  /** Per-connection reconnect attempt counter for exponential backoff. */
+  private reconnectAttempts = new Map<string, number>();
 
   // ------------------------------------------------------------------ //
   //  Session lifecycle
@@ -123,6 +125,8 @@ class WhatsAppManager {
           qrSettled = true;
           resolveQr(null); // reconnected silently — no QR needed
         }
+        // Reset back-off counter on successful connection
+        this.reconnectAttempts.delete(connectionId);
         // Mark this socket as truly ready for sending
         this.openSockets.add(connectionId);
         // Extract phone number from the connected account's JID (e.g. "1234567890:5@s.whatsapp.net" → "+1234567890")
@@ -149,41 +153,56 @@ class WhatsAppManager {
 
         const statusCode = (lastDisconnect?.error as Boom | undefined)?.output
           ?.statusCode;
-        const loggedOut = statusCode === DisconnectReason.loggedOut;
 
-        // console.log(
-        //   `[WA PID:${process.pid}] ❌ ${connectionId} closed (reason: ${statusCode})`,
-        // );
+        // ── IMPORTANT: We intentionally do NOT treat DisconnectReason.loggedOut
+        // specially here.  Baileys can fire loggedOut (401) for many transient
+        // reasons (server inactivity, credential rotation race, WA server
+        // hiccup) even though the phone still shows the linked device as active.
+        // The ONLY way a session should truly end is via the human-triggered
+        // stopSession() → logoutConnection() flow in the dashboard.
+        //
+        // So regardless of the status code we always reconnect. ──────────────
 
-        if (loggedOut) {
-          // console.log(
-          //   `[WA PID:${process.pid}] ⚠️ ${connectionId} unlinked from device. Marking stale and stopping retry.`,
-          // );
+        // Clean up the dead socket reference
+        this.sockets.delete(connectionId);
 
-          this.sockets.delete(connectionId);
-
-          // Mark the connection as stale in the database immediately
-          await prisma.gatewayConnection
-            .update({
-              where: { id: connectionId },
-              data: { status: "stale" },
-            })
-            .catch(() => undefined);
-
-          if (!qrSettled) {
-            qrSettled = true;
-            // Notify failure rather than success
-            resolveQr(undefined);
-          }
-
-          // Do not attempt to automatically reconnect when actively logged out/unlinked
-          return;
-        } else {
-          this.sockets.delete(connectionId);
+        if (!qrSettled) {
+          qrSettled = true;
+          resolveQr(null); // release the caller; reconnect will happen below
         }
 
-        // console.log(`[WA] 🔄 ${connectionId} reconnecting…`);
-        this.startSession(connectionId).catch(console.error);
+        // Back-off before reconnecting to avoid hammering WA servers.
+        // Exponential back-off capped at 60 s.
+        const attempt = (this.reconnectAttempts.get(connectionId) ?? 0) + 1;
+        this.reconnectAttempts.set(connectionId, attempt);
+        const delayMs = Math.min(2_000 * Math.pow(1.5, attempt - 1), 60_000);
+
+        console.log(
+          `[WA] ${connectionId} disconnected (code ${statusCode ?? "unknown"}). ` +
+            `Reconnect attempt #${attempt} in ${Math.round(delayMs / 1000)}s…`,
+        );
+
+        setTimeout(() => {
+          // Only skip reconnect if a human has explicitly logged out (stale).
+          prisma.gatewayConnection
+            .findUnique({
+              where: { id: connectionId },
+              select: { status: true },
+            })
+            .then((row) => {
+              if (!row || row.status === "stale") {
+                console.log(
+                  `[WA] ${connectionId} is stale (human logout) — skipping auto-reconnect.`,
+                );
+                return;
+              }
+              this.startSession(connectionId).catch(console.error);
+            })
+            .catch(() => {
+              // DB unavailable — still try to reconnect
+              this.startSession(connectionId).catch(console.error);
+            });
+        }, delayMs);
       }
     });
 
@@ -328,8 +347,14 @@ class WhatsAppManager {
   //  Logout / stop
   // ------------------------------------------------------------------ //
 
+  /**
+   * Human-triggered logout. This is the ONLY path that should end a session.
+   * It actively logs out from WhatsApp (so the phone's linked-devices list
+   * updates) and wipes stored credentials so the connection cannot auto-restore.
+   */
   async stopSession(connectionId: string): Promise<void> {
     this.openSockets.delete(connectionId);
+    this.reconnectAttempts.delete(connectionId);
     const socket = this.sockets.get(connectionId);
     this.sockets.delete(connectionId);
 
@@ -338,14 +363,21 @@ class WhatsAppManager {
         (
           socket.ev as unknown as { removeAllListeners: () => void }
         ).removeAllListeners();
-        socket.end(undefined);
+
+        // Actively notify WhatsApp to unlink this device
+        await socket.logout();
       } catch {
-        // ignore logout errors
+        // Best-effort; if WA is unreachable the session is already dead
+        try {
+          socket.end(undefined);
+        } catch {
+          // ignore
+        }
       }
     }
 
-    // Do NOT delete wa auth state as requested
-    // await deleteWaAuthState(connectionId);
+    // Delete stored credentials so restoreAllSessions won't revive this
+    await deleteWaAuthState(connectionId);
   }
 
   // ------------------------------------------------------------------ //
@@ -361,16 +393,14 @@ class WhatsAppManager {
       include: { connection: true },
     });
 
-    // console.log(`[WA] Restoring ${pending.length} session(s) from database…`);
-
     for (const row of pending) {
+      // Never restore a stale (manually logged-out) session automatically.
       if (row.connection.status === "stale") {
-        // console.log(
-        //   `[WA] Re-activating previously stale session for ${row.connectionId} as requested`,
-        // );
-        // We do not skip stale connections anymore, we keep them connected
+        console.log(
+          `[WA] Skipping stale connection ${row.connectionId} — requires manual re-activation.`,
+        );
+        continue;
       }
-      // console.log(`[WA] Restoring session for ${row.connectionId}…`);
       this.startSession(row.connectionId).catch((err) => {
         console.error(`[WA] Failed to restore ${row.connectionId}:`, err);
       });

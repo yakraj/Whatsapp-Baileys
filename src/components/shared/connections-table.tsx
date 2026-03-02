@@ -126,7 +126,7 @@ export function ConnectionsTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Customer ID</TableHead>
+              {/* <TableHead>Customer ID</TableHead> */}
               <TableHead>Name</TableHead>
               <TableHead>Website</TableHead>
               <TableHead>Mobile</TableHead>
@@ -138,9 +138,9 @@ export function ConnectionsTable({
           <TableBody>
             {connections.map((connection) => (
               <TableRow key={connection.id}>
-                <TableCell className="font-mono text-xs">
+                {/* <TableCell className="font-mono text-xs">
                   {connection.customerId}
-                </TableCell>
+                </TableCell> */}
                 <TableCell className="font-medium">
                   {connection.customerName}
                 </TableCell>

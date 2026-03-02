@@ -11,6 +11,7 @@ changes.patch
 dev.log
 pid_test.log
 prisma/migrations
-docs
 public
 !public
+deploy.ps1
+setup-vps.ps1

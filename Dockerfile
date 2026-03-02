@@ -50,16 +50,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/docs ./docs
 
-# Copy the migrations directory if it exists, or just the schema
-# We need schema for prisma migrate deploy
-
-# Install Prisma CLI globally or locally in the runner stage to ensure it is available for migrations
-# Since we are in a production environment, npm ci/install production won't include devDependencies.
-# We explicitly install the specific version of Prisma CLI to match the client version and avoid version mismatch (P1012).
-RUN npm install prisma@6.16.2
-RUN npx prisma -v
-RUN chown -R nextjs:nodejs /app/node_modules
+# Copy Prisma CLI and ALL its dependencies from deps stage.
+# The selective copy approach fails because @prisma/config has transitive deps
+# not present in Next.js standalone's minimal node_modules.
+# Copying from deps ensures the full, correct dependency tree.
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 USER nextjs
 
@@ -71,5 +68,5 @@ ENV HOSTNAME "0.0.0.0"
 
 # We will wrap the start command to run migrations
 # Use the local prisma binary directly to avoid npx downloading the latest version
-CMD ["sh", "-c", "./node_modules/.bin/prisma db push && node server.js"]
+CMD ["sh", "-c", "node ./node_modules/prisma/build/index.js db push && node server.js"]
 
