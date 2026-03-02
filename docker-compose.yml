@@ -7,9 +7,9 @@ services:
     environment:
       # Pass the DATABASE_URL from the host environment (create a .env file with your Azure DB connection string)
       DATABASE_URL: ${DATABASE_URL}
-      NEXT_PUBLIC_APP_BASE_URL: ${NEXT_PUBLIC_APP_BASE_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_BASE_URL: ${NEXT_PUBLIC_APP_BASE_URL:-http://localhost:3002}
       GATEWAY_JWT_SECRET: ${GATEWAY_JWT_SECRET:-your-secret-change-me}
       NODE_ENV: production
     ports:
-      - "3000:3000"
+      - "3002:3000"
     restart: unless-stopped

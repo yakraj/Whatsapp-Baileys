@@ -58,6 +58,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 # Since we are in a production environment, npm ci/install production won't include devDependencies.
 # We explicitly install the specific version of Prisma CLI to match the client version and avoid version mismatch (P1012).
 RUN npm install prisma@6.16.2
+RUN npx prisma -v
 RUN chown -R nextjs:nodejs /app/node_modules
 
 USER nextjs
@@ -70,5 +71,5 @@ ENV HOSTNAME "0.0.0.0"
 
 # We will wrap the start command to run migrations
 # Use the local prisma binary directly to avoid npx downloading the latest version
-CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma db push && node server.js"]
 
